@@ -10,6 +10,7 @@ module Csscss
       @ignored_selectors  = []
       @match_shorthand    = true
       @ignore_sass_mixins = false
+      @sass_import_paths = []
     end
 
     def run
@@ -103,6 +104,10 @@ module Csscss
           enable_compass(config)
         end
 
+        opts.on("--require-sass file1.sass, file2.sass,...", Array, "Add these files to the sass load paths") do |files|
+          @sass_import_paths = files
+        end
+
         opts.on("--require file.rb", "Load ruby file before running csscss.", "Great for bootstrapping requires/configurations") do |file|
           load file
         end
@@ -173,8 +178,11 @@ module Csscss
 
       sass_options = {cache:false}
       sass_options[:load_paths] = Compass.configuration.sass_load_paths if @compass
+      add_imports filename
       begin
-        Sass::Engine.for_file(filename, sass_options).render
+        sass2css = Sass::Engine.for_file(filename, sass_options).render
+        remove_imports filename
+        return sass2css
       rescue Sass::SyntaxError => e
         if e.message =~ /compass/ && !@compass
           puts "Enable --compass option to use compass's extensions"
@@ -183,6 +191,27 @@ module Csscss
           raise e
         end
       end
+    end
+
+    def add_imports(filename)
+      @sass_import_paths.map!{|path| "@import \"#{clean_up_path(path)}\"\n"}.join
+      old_file = IO.read(filename)
+      File.open(filename, 'w') do |file|
+        file.puts @sass_import_paths
+        file.puts old_file
+      end
+    end
+
+    def remove_imports(filename)
+      regex = Regexp.union(@sass_import_paths)
+      new_lines = []
+      File.foreach(filename) { |old_line| new_lines << old_line unless old_line.match(regex) }
+      File.open(filename, "w") { |new_file| new_file.puts new_lines }
+    end
+
+    def clean_up_path(path)
+      path.gsub!(/^_/,'')
+      File.basename(path, File.extname(path))
     end
 
     def load_less_file(filename)
